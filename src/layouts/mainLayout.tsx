@@ -85,7 +85,7 @@ const MainLayout: FC<MainLayoutProps> = ({ children }) => {
                   href="/auth/signin"
                   className="px-5 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
                 >
-                  Sign In
+                  Join us
                 </Link>
               )}
             </div>
@@ -115,11 +115,11 @@ const MainLayout: FC<MainLayoutProps> = ({ children }) => {
               Sherif Yousry
             </a>
           </p>
-          <p>
+          {/* <p>
             <Link href="/portfolio" className="text-teal-400 hover:underline">
               View My Portfolio
             </Link>
-          </p>
+          </p> */}
         </div>
       </footer>
     </div>

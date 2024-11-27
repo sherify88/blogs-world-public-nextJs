@@ -8,6 +8,9 @@ import { useSession } from 'next-auth/react';
 import axios from 'axios';
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
+import { parseLinks } from '@/utils/parseLinks';
+import Skeleton from 'react-loading-skeleton';
+import 'react-loading-skeleton/dist/skeleton.css';
 
 interface PostDetailsProps {
   post: Post | null;
@@ -21,6 +24,7 @@ const PostDetails: React.FC<PostDetailsProps> = ({ post }) => {
   const [likeCount, setLikeCount] = useState(post?.likesCount || 0);
   const [loading, setLoading] = useState(false);
   const [isFetchingLikeStatus, setIsFetchingLikeStatus] = useState(true);
+  const [isFetching, setIsFetching] = useState(true);
 
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentText, setCommentText] = useState('');
@@ -33,15 +37,25 @@ const PostDetails: React.FC<PostDetailsProps> = ({ post }) => {
   // Fetch comments for the post
   const fetchComments = async () => {
     try {
+      setIsFetching(true); // Start loading
       const response = await axios.get(`/api/posts/${post?.id}/comments`);
       setComments(response.data);
     } catch (error) {
       console.error('Error fetching comments:', error);
+    } finally {
+      setIsFetching(false); // End loading
     }
   };
 
+
+  
   // Add a new comment or reply
   const handleAddComment = async (parentCommentId: string | null = null) => {
+    if (!session?.user) {
+      router.push('/auth/signin');
+      return;
+    }
+
     const content = parentCommentId ? replyText : commentText;
     if (!content.trim()) return;
 
@@ -111,46 +125,111 @@ const PostDetails: React.FC<PostDetailsProps> = ({ post }) => {
     setReplyText('');
   };
 
+  const handleEditPost = () => {
+    router.push(`/posts/${post?.id}/edit`);
+  };
+
   if (!post) {
     return (
       <MainLayout>
         <div className="max-w-4xl mx-auto py-10">
           <h1 className="text-2xl font-bold">Post not found</h1>
-          <button onClick={() => router.back()} className="mt-4 px-4 py-2 bg-gray-300 rounded-md hover:bg-gray-400">
+          <button
+            onClick={() => router.back()}
+            className="mt-4 px-4 py-2 bg-gray-300 rounded-md hover:bg-gray-400"
+          >
             Go Back
           </button>
         </div>
       </MainLayout>
     );
   }
-
+  
+  // Show skeleton only for client-side hydration
+  if (isFetching && typeof window !== 'undefined') {
+    return (
+      <MainLayout>
+        <div className="max-w-4xl mx-auto py-10">
+          <Skeleton width={100} height={20} />
+          <Skeleton circle width={50} height={50} className="mt-4" />
+          <Skeleton width="80%" height={30} className="mt-4" />
+          <Skeleton width="100%" height={200} className="mt-4" />
+          <Skeleton width="60%" height={20} className="mt-4" />
+        </div>
+      </MainLayout>
+    );
+  }
   return (
     <MainLayout>
-      <Head>
-        <title>{post.title}</title>
-      </Head>
+<Head>
+  {post ? (
+    <>
+      {/* Page Title */}
+      <title>{post.title}</title>
+      
+      {/* Open Graph Meta Tags */}
+      <meta property="og:title" content={post.title} />
+      <meta property="og:description" content={post.content.slice(0, 155)} />
+      <meta property="og:image" content={post.imageUrl || 'https://www.awesome-posts.com/default-image.png'} />
+      <meta property="og:type" content="article" />
+      <meta property="og:url" content={`https://www.awesome-posts.com/posts/${post.id}/details`} />
+      <meta property="og:site_name" content="Awesome Posts" />
 
+      {/* Twitter Card Meta Tags */}
+      <meta name="twitter:card" content="summary_large_image" />
+      <meta name="twitter:title" content={post.title} />
+      <meta name="twitter:description" content={post.content.slice(0, 155)} />
+      <meta name="twitter:image" content={post.imageUrl || 'https://www.awesome-posts.com/default-image.png'} />
+    </>
+  ) : (
+    <title>Post Not Found</title>
+  )}
+</Head>
       <div className="max-w-4xl mx-auto py-10">
+        {/* Creator Info */}
+        <div className="flex items-center mb-8">
+          {post.user.imageUrl && (
+            <Image
+              src={post.user.imageUrl}
+              alt={post.user.firstName}
+              width={50}
+              height={50}
+              className="rounded-full mr-4"
+            />
+          )}
+          <div>
+            <p className="text-lg font-semibold">{post.user.firstName} {post.user.lastName}</p>
+            <p className="text-gray-500 text-sm">Published on {new Date(post.createdAt).toLocaleDateString()}</p>
+          </div>
+        </div>
 
-     
+        {/* Edit Button */}
+        {isPostCreator && (
+          <button onClick={handleEditPost} className="mb-8 px-4 py-2 bg-blue-600 text-white rounded">
+            Edit Post
+          </button>
+        )}
+
+        {/* Post Title */}
+        <h1 className="text-2xl font-bold mb-6">{post.title}</h1>
+
+        {/* Post Image */}
+        {post.imageUrl && (
+          <div className="mb-8">
+            <Image
+              src={post.imageUrl}
+              alt={post.title}
+              width={800}
+              height={400}
+              className="rounded-lg object-cover"
+            />
+          </div>
+        )}
+
         {/* Post Content */}
-        <h1 className="text-4xl font-bold">{post.title}</h1>
-                {/* Display Post Image */}
-                {post.imageUrl && (
-  <div className="mb-8">
-    <Image
-      src={post.imageUrl}
-      alt={post.title}
-      width={800}
-      height={400}
-      className="rounded-lg object-cover"
-      objectFit="cover"
-      quality={80}
-    />
-  </div>
-)}
-        
-        <p className="whitespace-pre-wrap mb-8">{post.content}</p>
+         <div className="mb-8">
+          <p className="whitespace-pre-wrap">{parseLinks(post.content)}</p>
+        </div>
 
         {/* Like Button */}
         <button onClick={handleLikeToggle} className={`px-4 py-2 ${isLiked ? 'bg-red-500' : 'bg-green-500'} text-white rounded`}>

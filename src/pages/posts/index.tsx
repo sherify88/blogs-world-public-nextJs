@@ -1,82 +1,61 @@
-import { useRouter } from 'next/router';
-import { useSession } from 'next-auth/react';
-import { Post } from '@/models/posts';
+import { GetServerSideProps } from 'next';
+import Head from 'next/head';
+import { useSession, getSession } from 'next-auth/react';
 import Link from 'next/link';
-import axios from 'axios';
-import { useState, useEffect } from 'react';
-import { format } from 'date-fns';
-import { FiPlus, FiHeart, FiUserCheck, FiUserPlus, FiLoader } from 'react-icons/fi';
-import Image from 'next/image';
-
+import MainLayout from '@/layouts/mainLayout';
+import PostCard from './postCard';
+import { GetPostsResponse, Post } from '@/models/posts';
+import { fetchPostServerSide } from '@/services/postServices';
+import { useRouter } from 'next/router';
+import { FaArrowLeft, FaArrowRight } from 'react-icons/fa';
+import { useEffect, useState } from 'react';
+import Skeleton from 'react-loading-skeleton';
+import 'react-loading-skeleton/dist/skeleton.css';
+import { FiPlus } from 'react-icons/fi';
 interface PostsPageProps {
   items: Post[];
   totalItems: number;
   page: number;
   limit: number;
+  pageTitle: string;
+  pageDescription: string;
+  previewImageUrl?: string;
 }
 
-const PostCard: React.FC<PostsPageProps> = ({ items }) => {
+const HomePage: React.FC<PostsPageProps> = ({
+  items,
+  totalItems,
+  page,
+  limit,
+  pageTitle,
+  pageDescription,
+  previewImageUrl,
+}) => {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [following, setFollowing] = useState<{ [key: string]: boolean }>({});
-  const [isFetched, setIsFetched] = useState<{ [key: string]: boolean }>({});
+
+  const [selectedTab, setSelectedTab] = useState<'all' | 'myPosts'>('all');
   const [loading, setLoading] = useState(false);
-
-  // Function to check if the current user is already following the post creator
-  const checkIfFollowing = async (userId: string) => {
-    try {
-      const response = await axios.get(`/api/users/${userId}/isFollowing`);
-      return response.data.isFollowing;
-    } catch (error) {
-      console.error('Error checking follow status:', error);
-      return false;
-    }
-  };
-
-  // Function to handle follow/unfollow with loading dialog
-  const handleFollowToggle = async (userId: string) => {
-    if (!session?.user) {
-      router.push('/auth/signin');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      if (following[userId]) {
-        await axios.post(`/api/users/${userId}/unfollow`);
-        setFollowing((prev) => ({ ...prev, [userId]: false }));
-      } else {
-        await axios.post(`/api/users/${userId}/follow`);
-        setFollowing((prev) => ({ ...prev, [userId]: true }));
-      }
-    } catch (error) {
-      console.error('Error toggling follow status:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    if (items) {
-      const fetchFollowingStatus = async () => {
-        const statusMap: { [key: string]: boolean } = {};
-        const fetchedMap: { [key: string]: boolean } = {};
-        for (const item of items) {
-          const isFollowing = await checkIfFollowing(item.user.id);
-          statusMap[item.user.id] = isFollowing;
-          fetchedMap[item.user.id] = true;
+    const fetchPosts = async () => {
+      setLoading(true); // Start loading
+      try {
+        const query: { [key: string]: string } = { ...router.query, page: '1' };
+        if (selectedTab === 'myPosts' && session?.user?.id) {
+          query['authorId'] = session.user.id;
+        } else {
+          delete query['authorId'];
         }
-        setFollowing(statusMap);
-        setIsFetched(fetchedMap);
-      };
-      fetchFollowingStatus();
-    }
-  }, [items, session]);
-
-  const handlePostClick = (id: string) => {
-    router.push(`/posts/${id}/details`);
-  };
-
+        await router.push({ pathname: router.pathname, query });
+      } catch (error) {
+        console.error('Error fetching posts:', error);
+      } finally {
+        setLoading(false); // End loading
+      }
+    };
+  
+    fetchPosts();
+  }, [selectedTab, session]);
   const handleCreatePost = () => {
     if (!session?.user) {
       router.push('/auth/signin');
@@ -84,18 +63,39 @@ const PostCard: React.FC<PostsPageProps> = ({ items }) => {
     }
     router.push('/posts/create');
   };
+  if (status === 'loading' || loading) {
+    return (
+      <MainLayout>
+        <div className="max-w-7xl mx-auto py-12">
+          <Skeleton height={30} width={200} className="mb-6" />
+          <Skeleton height={20} width="100%" className="mb-4" />
+          <Skeleton height={300} width="100%" className="mb-6" />
+          <Skeleton height={300} width="100%" className="mb-6" />
+          <Skeleton height={300} width="100%" className="mb-6" />
+        </div>
+      </MainLayout>
+    );
+  }
+  const totalPages = Math.ceil(totalItems / limit);
+
+  const goToPage = (newPage: number) => {
+    router.push({
+      pathname: router.pathname,
+      query: { ...router.query, page: newPage },
+    });
+  };
 
   return (
-    <div className="max-w-7xl mx-auto py-8">
-      {/* Loading dialog */}
-      {loading && (
-        <div className="fixed inset-0 flex items-center justify-center bg-gray-800 bg-opacity-75 z-50">
-          <FiLoader className="text-white animate-spin w-12 h-12" />
-          <p className="text-white mt-4">Processing...</p>
-        </div>
-      )}
+    <MainLayout>
+      <Head>
+        <title>{pageTitle}</title>
+        <meta name="description" content={pageDescription} />
+        {previewImageUrl && <meta property="og:image" content={previewImageUrl} />}
+      </Head>
 
-<div className="flex justify-between items-center mb-6">
+      <div className="max-w-7xl mx-auto py-12">
+  
+      <div className="flex justify-between items-center mb-6">
   <h2 className="text-3xl font-bold text-gray-800">Explore Posts</h2>
   <button
     onClick={handleCreatePost}
@@ -104,74 +104,116 @@ const PostCard: React.FC<PostsPageProps> = ({ items }) => {
     <FiPlus className="mr-2" /> Share a New Post with Us
   </button>
 </div>
-
-      <ul className="space-y-6">
-        {items?.map((item) => (
-          <li
-            key={item.id}
-            className="p-6 bg-white shadow-lg rounded-lg hover:shadow-xl transition cursor-pointer"
-            onClick={() => handlePostClick(item.id)}
+ {/* Tabs for Filtering Posts */}
+ <div className="flex justify-center mb-8">
+          <button
+            className={`px-6 py-2 rounded-l-md ${selectedTab === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'} hover:bg-blue-700`}
+            onClick={() => setSelectedTab('all')}
           >
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center space-x-4">
-                <img
-                  src={item?.user?.imageUrl || '/icons/user-avatar.png'}
-                  alt="User Avatar"
-                  className="w-12 h-12 rounded-full object-cover"
-                />
-                <div>
-                  <h3 className="text-xl font-semibold">{item.title}</h3>
-                  <p className="text-gray-500">
-                    By {item.user.firstName} {item.user.lastName} &bull;{' '}
-                    {format(new Date(item.createdAt), 'MMM d, yyyy')}
-                  </p>
-                </div>
-              </div>
-              {session?.user?.id !== item.user.id && isFetched[item.user.id] && (
-                <button
-                  className={`flex items-center px-4 py-2 rounded-md ${
-                    following[item.user.id]
-                      ? 'bg-red-500 hover:bg-red-600'
-                      : 'bg-green-500 hover:bg-green-600'
-                  } text-white`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleFollowToggle(item.user.id);
-                  }}
+            All Posts
+          </button>
+          <button
+            className={`px-6 py-2 rounded-r-md ${selectedTab === 'myPosts' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'} hover:bg-blue-700`}
+            onClick={() => setSelectedTab('myPosts')}
+            disabled={!session?.user}
+          >
+            My Posts
+          </button>
+        </div>
+        {/* Posts List */}
+        <div className="mt-8">
+          {items.length > 0 ? (
+            <PostCard items={items} totalItems={totalItems} page={page} limit={limit} />
+          ) : (
+            <div className="text-center py-10">
+              <h3 className="text-2xl font-semibold text-gray-600">No posts available</h3>
+              <p className="text-gray-500 mt-2">Be the first to create a post and share your thoughts!</p>
+              {session?.user && (
+                <Link
+                  href="/posts/create"
+                  className="mt-6 inline-block bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition-colors"
                 >
-                  {following[item.user.id] ? (
-                    <>
-                      <FiUserCheck className="mr-2" /> Unfollow
-                    </>
-                  ) : (
-                    <>
-                      <FiUserPlus className="mr-2" /> Follow
-                    </>
-                  )}
-                </button>
+                  Create a Post
+                </Link>
               )}
             </div>
-            {/* Display Post Image */}
-            {item.imageUrl && (
-              <div className="mb-4 relative w-full h-64">
-                <Image
-                  src={item.imageUrl}
-                  alt="Post Image"
-                  layout="fill"
-                  objectFit="cover"
-                  className="rounded-lg"
-                  quality={80}
-                />
-              </div>
-            )}
+          )}
+        </div>
 
-            <p className="text-gray-700 mb-4">{item.content.slice(0, 150)}...</p>
-            <div className="text-blue-600 hover:underline">Read More &rarr;</div>
-          </li>
-        ))}
-      </ul>
-    </div>
+        {/* Pagination */}
+        <div className="mt-10 flex justify-center items-center gap-6">
+          <button
+            className={`flex items-center px-4 py-2 rounded-md transition-colors ${
+              page > 1 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-300 text-gray-600 cursor-not-allowed'
+            }`}
+            onClick={() => goToPage(page - 1)}
+            disabled={page <= 1}
+          >
+            <FaArrowLeft className="mr-2" />
+            Previous
+          </button>
+
+          <span className="text-lg font-semibold">
+            Page {page} of {totalPages}
+          </span>
+
+          <button
+            className={`flex items-center px-4 py-2 rounded-md transition-colors ${
+              page < totalPages ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-300 text-gray-600 cursor-not-allowed'
+            }`}
+            onClick={() => goToPage(page + 1)}
+            disabled={page >= totalPages}
+          >
+            Next
+            <FaArrowRight className="ml-2" />
+          </button>
+        </div>
+      </div>
+    </MainLayout>
   );
 };
 
-export default PostCard;
+
+export default HomePage;
+
+export const getServerSideProps: GetServerSideProps<PostsPageProps> = async (context) => {
+  try {
+    const session = await getSession(context);
+    const page = parseInt((context.query.page as string) || '1', 10);
+    const limit = parseInt((context.query.limit as string) || '10', 10);
+    const authorId = context.query.authorId as string;
+
+    const { items, meta } = await fetchPostServerSide(context, page, limit, authorId);
+
+    const firstPost = items[0];
+    const pageTitle = `Page ${page} - Posts`;
+    const pageDescription = firstPost
+      ? firstPost.content.slice(0, 155)
+      : 'View the latest posts on this page.';
+    const previewImageUrl = firstPost?.imageUrl || null;
+
+    return {
+      props: {
+        items,
+        totalItems: meta.totalItems,
+        page: meta.currentPage,
+        limit: meta.itemsPerPage,
+        pageTitle,
+        pageDescription,
+        previewImageUrl,
+      },
+    };
+  } catch (error) {
+    console.error('Error fetching posts on server:', error);
+    return {
+      props: {
+        items: [],
+        totalItems: 0,
+        page: 1,
+        limit: 10,
+        pageTitle: 'Error Loading Posts',
+        pageDescription: 'Unable to load posts at this time.',
+      },
+    };
+  }
+};
